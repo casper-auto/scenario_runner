@@ -1,22 +1,22 @@
 <?xml version="1.0"?>
 <scenarios>
     <scenario name="CasperAutoStopSign_4" type="CasperAutoStopSign" town="Town04">
-        <ego_vehicle x="245.0" y="-173.0" z="2.5" yaw="180" model="vehicle.lincoln.mkz2017" />
+        <ego_vehicle x="245.0" y="-173.0" z="2.5" yaw="180" model="vehicle.lincoln.mkz2017" rolename="ego_vehicle" />
     </scenario>
     <scenario name="CasperAutoStopSignWithObstacle_4" type="CasperAutoStopSignWithObstacle" town="Town04">
-        <ego_vehicle x="245.0" y="-173.0" z="2.5" yaw="180" model="vehicle.lincoln.mkz2017" />
+        <ego_vehicle x="245.0" y="-173.0" z="2.5" yaw="180" model="vehicle.lincoln.mkz2017" rolename="ego_vehicle" />
         <!-- spawn actors-->
       	<other_actor x="230.0" y="-174.3" z="2.5" yaw="180" model="vehicle.volkswagen.t2" />
     </scenario>
 
-    <scenario name="CasperAutoUrbanSingleLane_1" type="CasperAutoUrbanSingleLane" town="Town01">
-        <ego_vehicle x="107" y="133" z="0.5" yaw="0" model="vehicle.lincoln.mkz2017" />
+    <scenario name="CasperAutoUrbanSingleLane_1" type="CasperAutoUrbanSingleLane" town="Town01" >
+        <ego_vehicle x="107" y="133.5" z="0.5" yaw="0" model="vehicle.lincoln.mkz2017" rolename="ego_vehicle" />
         <!-- spawn actors-->
       	<other_actor x="127.0" y="134.5" z="2.5" yaw="0" model="vehicle.dodge_charger.police" />
-        <other_actor x="152.0" y="133.0" z="2.5" yaw="0" model="vehicle.audi.tt" />
+        <other_actor x="152.0" y="133.5" z="2.5" yaw="0" model="vehicle.audi.tt" />
     </scenario>
     <scenario name="CasperAutoUrbanSingleLane_4" type="CasperAutoUrbanSingleLane" town="Town04">
-        <ego_vehicle x="188.2" y="-312.1" z="2.5" yaw="180" model="vehicle.lincoln.mkz2017" />
+        <ego_vehicle x="188.2" y="-312.1" z="2.5" yaw="180" model="vehicle.lincoln.mkz2017" rolename="ego_vehicle" />
         <!-- spawn actors-->
       	<other_actor x="168.2" y="-312.7" z="2.5" yaw="180" model="vehicle.dodge_charger.police" />
         <other_actor x="143.2" y="-309.3" z="2.5" yaw="173" model="vehicle.audi.tt" />
