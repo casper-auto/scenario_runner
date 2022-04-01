@@ -29,7 +29,7 @@ import sys
 import time
 import json
 import pkg_resources
-
+import csv
 import carla
 
 from srunner.scenarioconfigs.openscenario_configuration import OpenScenarioConfiguration
@@ -94,6 +94,30 @@ class ScenarioRunner(object):
         dist = pkg_resources.get_distribution("carla")
         if LooseVersion(dist.version) < LooseVersion('0.9.11'):
             raise ImportError("CARLA version 0.9.11 or newer required. CARLA version found: {}".format(dist))
+
+        #Report
+        self._counter = 0
+        self._report_filename = None
+        self._success_counter = 0.0
+        self._accident_counter = 0.0
+        self._timeout_counter = 0.0
+        self._time_to_merge_sum = 0.0
+        #self._acc_ave_sum = 0.0
+        self._throttle_ave_sum = 0.0
+        self._brake_ave_sum = 0.0
+        self._acc_min_sum = 0.0
+        self._acc_max_sum = 0.0
+        #self._jerk_ave_sum = 0.0
+        self._throttle_jerk_ave_sum = 0.0
+        self._brake_jerk_ave_sum = 0.0
+        self._jerk_min_sum = 0.0
+        self._jerk_max_sum = 0.0
+        self._angular_acc_ave_sum = 0.0
+        #self._angular_acc_min_sum = 0.0
+        self._angular_acc_max_sum = 0.0
+        self._angular_jerk_ave_sum = 0.0
+        #self._angular_jerk_min_sum = 0.0
+        self._angular_jerk_max_sum = 0.0
 
         # Load agent if requested via command line args
         # If something goes wrong an exception will be thrown by importlib (ok here)
@@ -349,6 +373,8 @@ class ScenarioRunner(object):
         """
         Load and run the scenario given by config
         """
+        self._counter += 1
+        print("\nIteration #: ", self._counter)
         result = False
         if not self._load_and_wait_for_world(config.town, config.ego_vehicles):
             self._cleanup()
@@ -387,11 +413,28 @@ class ScenarioRunner(object):
                                          debug_mode=self._args.debug)
             else:
                 scenario_class = self._get_scenario_class_or_fail(config.type)
-                scenario = scenario_class(self.world,
-                                          self.ego_vehicles,
-                                          config,
-                                          self._args.randomize,
-                                          self._args.debug)
+
+                dense_traffic_flag = False
+                cooperative_drivers_flag = False
+                if self._args.dense == "True" or self._args.dense == "true":
+                    dense_traffic_flag = True
+                if self._args.cooperative == "True" or self._args.cooperative == "true":
+                    cooperative_drivers_flag = True
+
+                if "Casper" in config.name:
+                    # self.ego_vehicles[0].set_simulate_physics(False)
+                    scenario = scenario_class(self.world,
+                                              self.ego_vehicles,
+                                              config,
+                                              self._args.randomize,
+                                              self._args.debug,
+                                              report_enable=self._args.report_enable)
+                else:
+                    scenario = scenario_class(self.world,
+                                              self.ego_vehicles,
+                                              config,
+                                              self._args.randomize,
+                                              self._args.debug)
         except Exception as exception:                  # pylint: disable=broad-except
             print("The scenario cannot be loaded")
             traceback.print_exc()
@@ -411,6 +454,10 @@ class ScenarioRunner(object):
 
             # Provide outputs if required
             self._analyze_scenario(config)
+
+            # Update report
+            if self._args.report_enable:
+                self.update_report(self._args, config, scenario)
 
             # Remove all actors, stop the recorder and save all criterias (if needed)
             scenario.remove_all_actors()
@@ -448,6 +495,10 @@ class ScenarioRunner(object):
                 result = self._load_and_run_scenario(config)
 
             self._cleanup()
+
+        if self._args.report_enable:
+            self.add_summary_to_report()
+
         return result
 
     def _run_route(self):
@@ -499,6 +550,8 @@ class ScenarioRunner(object):
         """
         Run all scenarios according to provided commandline args
         """
+        if self._args.report_enable:
+            self.create_report(self._args)
         result = True
         if self._args.openscenario:
             result = self._run_openscenario()
@@ -510,6 +563,147 @@ class ScenarioRunner(object):
         print("No more scenarios .... Exiting")
         return result
 
+    def create_report(self, args):
+        '''
+        report
+        '''
+        current_time = str(datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
+        behavior = ""
+        traffic_density = ""
+        if args.dense == "True" or args.dense == "true":
+            traffic_density = "_dense-traffic"
+        else:
+            traffic_density = "_sparse-traffic"
+
+        if args.cooperative == "True" or args.cooperative == "true":
+            behavior = "_cooperative-drivers"
+        else:
+            behavior = "_aggressive-drivers"
+
+        # report_filename = current_time + ".csv"
+        self._report_filename = current_time + traffic_density + behavior + ".csv"
+        with open(self._report_filename, mode='w') as csv_file:
+            #fieldnames = ['emp_name', 'dept', 'birth_month']
+            fieldnames = ['N', 'Time', 'Successful', 'Accident', 'Timeout', 'Brake_Ave', 'Throttle_Ave',
+                          'Acc_Min', 'Acc_Max', 'Brake_Jerk_Ave', 'Throttle_Jerk_Ave', 'Jerk_Min', 'Jerk_Max',
+                          'Angular_Acc_Ave', 'Angular_Acc_Max', 'Angular_Jerk_Ave', 'Angular_Jerk_Max']
+            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+            writer.writeheader()
+
+    def update_report(self, args, config, scenario):
+        '''
+        report
+        '''
+        analyze_flag = self.manager.analyze_scenario(args.output, None, None, None)
+
+        #Success, timeout, accident
+        success_flag = 0
+        accident_flag = 0
+        time_out_flag = 0
+
+        if analyze_flag == 0:
+            success_flag = 1
+            self._success_counter += 1
+        elif analyze_flag == 1:
+            time_out_flag = 1
+            self._timeout_counter += 1
+        elif analyze_flag == 2:
+            accident_flag = 1
+            self._accident_counter += 1
+
+        #Time to merge
+        time_to_merge = scenario._elapsed_time
+
+        #statistic
+        if success_flag == 1:
+            self._time_to_merge_sum += time_to_merge
+            #self._acc_ave_sum += scenario._acc_ave
+            self._throttle_ave_sum += scenario._throttle_ave
+            self._brake_ave_sum += scenario._brake_ave
+            self._acc_min_sum += scenario._acc_min
+            self._acc_max_sum += scenario._acc_max
+            #self._jerk_ave_sum += scenario._jerk_ave
+            self._brake_jerk_ave_sum += scenario._brake_jerk_ave
+            self._throttle_jerk_ave_sum += scenario._throttle_jerk_ave
+            self._jerk_min_sum += scenario._jerk_min
+            self._jerk_max_sum += scenario._jerk_max
+            self._angular_acc_ave_sum += scenario._angular_acc_ave
+            #self._angular_acc_min_sum += scenario._angular_acc_min
+            self._angular_acc_max_sum += scenario._angular_acc_max
+            self._angular_jerk_ave_sum += scenario._angular_jerk_ave
+            #self._angular_jerk_min_sum += scenario._angular_jerk_min
+            self._angular_jerk_max_sum += scenario._angular_jerk_max
+
+        report = [self._counter,
+                  round(time_to_merge, 2),
+                  success_flag,
+                  accident_flag,
+                  time_out_flag,
+                  round(scenario._brake_ave, 2),
+                  round(scenario._throttle_ave, 2),
+                  round(scenario._acc_min, 2),
+                  round(scenario._acc_max, 2),
+                  round(scenario._brake_jerk_ave, 2),
+                  round(scenario._throttle_jerk_ave, 2),
+                  round(scenario._jerk_min, 2),
+                  round(scenario._jerk_max, 2),
+                  round(scenario._angular_acc_ave, 2),
+                  round(scenario._angular_acc_max, 2),
+                  round(scenario._angular_jerk_ave, 2),
+                  round(scenario._angular_jerk_max, 2)]
+        with open(self._report_filename, mode='a') as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(report)
+
+    def add_summary_to_report(self):
+        '''
+        report
+        '''
+        blank = []
+        header = ['N', 'Successful Time', 'Successful %', 'Accident %', 'Timeout %',
+                    'Brake_Ave', 'Throttle_Ave', 'Acc_Min', 'Acc_Max',
+                    'Brake_Jerk_Ave', 'Throttle_Jerk_Ave', 'Jerk_Min', 'Jerk_Max',
+                    'Angular_Acc_Ave', 'Angular_Acc_Max',
+                    'Angular_Jerk_Ave', 'Angular_Jerk_Max']
+        summary = []
+        if self._success_counter > 0 and self._counter > 0:
+            summary = [self._counter,
+                       round(self._time_to_merge_sum/self._success_counter, 2),
+                       round(self._success_counter/self._counter * 100, 2),
+                       round(self._accident_counter/self._counter * 100, 2),
+                       round(self._timeout_counter/self._counter * 100, 2),
+                       round(self._brake_ave_sum/self._success_counter, 2),
+                       round(self._throttle_ave_sum/self._success_counter, 2),
+                       round(self._acc_min_sum/self._success_counter, 2),
+                       round(self._acc_max_sum/self._success_counter, 2),
+                       round(self._brake_jerk_ave_sum/self._success_counter, 2),
+                       round(self._throttle_jerk_ave_sum/self._success_counter, 2),
+                       round(self._jerk_min_sum/self._success_counter, 2),
+                       round(self._jerk_max_sum/self._success_counter, 2),
+                       round(self._angular_acc_ave_sum/self._success_counter, 2),
+                       round(self._angular_acc_max_sum/self._success_counter, 2),
+                       round(self._angular_jerk_ave_sum/self._success_counter, 2),
+                       round(self._angular_jerk_max_sum/self._success_counter, 2)]
+        elif self._success_counter == 0 and self._counter > 0:
+            summary = [self._counter, '---', round(self._success_counter/self._counter * 100, 2),
+                       round(self._accident_counter/self._counter * 100, 2), round(self._timeout_counter/self._counter * 100, 2),
+                       '---', '---', '---', '---',
+                       '---', '---', '---', '---',
+                       '---', '---',
+                       '---', '---']
+        else:
+            summary = [0, '---', 0.00,
+                       0.00, 0.00,
+                       '---', '---', '---', '---',
+                       '---', '---', '---', '---',
+                       '---', '---',
+                       '---', '---']
+
+        with open(self._report_filename, mode='a') as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(blank)
+            writer.writerow(header)
+            writer.writerow(summary)
 
 def main():
     """
@@ -565,6 +759,9 @@ def main():
     parser.add_argument('--repetitions', default=1, type=int, help='Number of scenario executions')
     parser.add_argument('--waitForEgo', action="store_true", help='Connect the scenario to an existing ego vehicle')
 
+    parser.add_argument('--dense', default=1, help='dense traffic')
+    parser.add_argument('--cooperative', default=0, help='cooperative drivers vs noncooperative')
+    parser.add_argument('--report_enable', action="store_true", default=False, help='produce report')
     arguments = parser.parse_args()
     # pylint: enable=line-too-long
 

@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<scenarios>
+    <scenario name="CasperInteractiveLaneChange_3" type="CasperInteractiveLaneChange" town="Town03">
+        <ego_vehicle x="150" y="193.2" z="3.0" yaw="180" model="vehicle.lincoln2020.*" rolename="ego_vehicle"/>
+        <weather cloudyness="12" precipitation="0" precipitation_deposits="0" wind_intensity="0" sun_azimuth="0" sun_altitude="75" />
+    </scenario>
+    <scenario name="CasperInteractiveLaneChangeHumanDriver_3" type="CasperInteractiveLaneChangeHumanDriver" town="Town03">
+        <ego_vehicle x="150" y="193.2" z="3.0" yaw="180" model="vehicle.lincoln2020.*" rolename="ego_vehicle"/>
+        <weather cloudyness="12" precipitation="0" precipitation_deposits="0" wind_intensity="0" sun_azimuth="0" sun_altitude="75" />
+    </scenario>
+    <scenario name="CasperInteractiveLaneChangeMultiplePlayers_3" type="CasperInteractiveLaneChangeMultiplePlayers" town="Town03">
+        <ego_vehicle x="150" y="193.2" z="3.0" yaw="180" model="vehicle.lincoln2020.*" rolename="ego_vehicle"/>
+        <weather cloudyness="12" precipitation="0" precipitation_deposits="0" wind_intensity="0" sun_azimuth="0" sun_altitude="75" />
+    </scenario>
+</scenarios>

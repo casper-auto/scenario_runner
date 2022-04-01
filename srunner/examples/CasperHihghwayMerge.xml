@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<scenarios>
+    <scenario name="CasperHighwayMerge_4" type="CasperHighwayMerge" town="Town04">
+        <ego_vehicle x="70" y="146" z="1.0" yaw="-174" model="vehicle.lincoln2020.*" rolename="ego_vehicle"/>
+        <weather cloudyness="12" precipitation="0" precipitation_deposits="0" wind_intensity="0" sun_azimuth="0" sun_altitude="75"/>
+    </scenario>
+</scenarios>

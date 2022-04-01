@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<scenarios>
+    <scenario name="CasperJunctionTurning_1" type="CasperJunctionTurning" town="Town01">
+        <ego_vehicle x="130" y="55" z="0" yaw="180" model="vehicle.lincoln2020.*" />
+    </scenario>
+
+    <!-- Interactive Planning - Scenario 2: Right Turn and Merge into the Vehicle Stream -->>
+    <scenario name="CasperJunctionTurning_2" type="CasperJunctionTurning2" town="Town01">
+        <ego_vehicle x="102" y="129.5" z="0" yaw="180" model="vehicle.lincoln2020.*" rolename="ego_vehicle" />
+        <other_actor x="92.5" y="250" z="0" yaw="-90" model="vehicle.audi.etron" />
+        <!-- <other_actor x="88.2" y="11.7" z="0" yaw="90" model="vehicle.audi.etron" /> -->
+        <other_actor x="96.5" y="140.0" z="0" yaw="-90" model="walker.pedestrian.0002" />
+    </scenario>
+
+    <scenario name="CasperJunctionTurning_3" type="CasperJunctionTurning3" town="Town01">
+        <ego_vehicle x="102" y="129.5" z="0" yaw="180" model="vehicle.lincoln2020.*" rolename="ego_vehicle" />
+        <other_actor x="92.5" y="180" z="0" yaw="-90" model="vehicle.audi.etron" />
+        <other_actor x="88.2" y="71.5" z="0" yaw="90" model="vehicle.audi.etron" />
+        <other_actor x="96.5" y="140.0" z="0" yaw="-90" model="walker.pedestrian.0002" />
+    </scenario>
+
+    <scenario name="CasperJunctionTurning_6" type="CasperJunctionTurning6" town="Town01">
+        <ego_vehicle x="102" y="129.5" z="0" yaw="180" model="vehicle.lincoln2020.*" rolename="ego_vehicle" />
+        <other_actor x="92.5" y="250" z="0" yaw="-90" model="vehicle.audi.etron" />
+        <other_actor x="88.2" y="40" z="0" yaw="90" model="vehicle.audi.etron" />
+        <other_actor x="96.5" y="140.0" z="0" yaw="-90" model="walker.pedestrian.0002" />
+    </scenario>
+
+    <scenario name="CasperJunctionTurning_6H" type="CasperJunctionTurning6_HighSpeed" town="Town01">
+        <ego_vehicle x="102" y="129.5" z="0" yaw="180" model="vehicle.lincoln2020.*" rolename="ego_vehicle" />
+        <other_actor x="92.5" y="250" z="0" yaw="-90" model="vehicle.audi.etron" />
+        <other_actor x="88.2" y="40" z="0" yaw="90" model="vehicle.audi.etron" />
+        <other_actor x="96.5" y="140.0" z="0" yaw="-90" model="walker.pedestrian.0002" />
+    </scenario>
+
+    <scenario name="CasperJunctionTurning_6Demo" type="CasperJunctionTurning6Demo" town="Town01">
+        <ego_vehicle x="112" y="129.5" z="0" yaw="180" model="vehicle.lincoln2020.*" rolename="ego_vehicle" />
+        <other_actor x="92.5" y="150" z="0" yaw="-90" model="vehicle.audi.etron" />
+        <other_actor x="88.2" y="40" z="0" yaw="90" model="vehicle.audi.etron" />
+        <other_actor x="96.5" y="140.0" z="0" yaw="-90" model="walker.pedestrian.0002" />
+    </scenario>
+</scenarios>

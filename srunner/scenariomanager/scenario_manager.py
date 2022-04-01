@@ -204,7 +204,17 @@ class ScenarioManager(object):
         This function is intended to be called from outside and provide
         the final statistics about the scenario (human-readable, in form of a junit
         report, etc.)
+        Updated the out put to return:
+        0: SUCCESS
+        1: TIME OUT
+        2: FAILURE
         """
+
+        success_flag = 0
+        timeout_flag = 1
+        failure_flag = 2
+
+        status_flag = 0
 
         failure = False
         timeout = False
@@ -212,22 +222,24 @@ class ScenarioManager(object):
 
         if self.scenario.test_criteria is None:
             print("Nothing to analyze, this scenario has no criteria")
-            return True
+            return success_flag
 
         for criterion in self.scenario.get_criteria():
             if (not criterion.optional and
                     criterion.test_status != "SUCCESS" and
                     criterion.test_status != "ACCEPTABLE"):
                 failure = True
+                status_flag = failure_flag
                 result = "FAILURE"
             elif criterion.test_status == "ACCEPTABLE":
                 result = "ACCEPTABLE"
 
         if self.scenario.timeout_node.timeout and not failure:
             timeout = True
+            status_flag = timeout_flag
             result = "TIMEOUT"
 
         output = ResultOutputProvider(self, result, stdout, filename, junit, json)
         output.write()
 
-        return failure or timeout
+        return status_flag

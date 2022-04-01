@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<scenarios>
+    <scenario name="CasperHighwayFollowing_4" type="CasperHighwayFollowing" town="Town04">
+        <ego_vehicle x="-326.2" y="435.8" z="0" yaw="0" model="vehicle.lincoln2020.*" rolename="ego_vehicle"/>
+    </scenario>
+</scenarios>

@@ -41,6 +41,9 @@ from srunner.scenariomanager.timer import GameTime
 from srunner.tools.scenario_helper import detect_lane_obstacle
 from srunner.tools.scenario_helper import generate_target_waypoint_list_multilane
 
+from srunner.custom_agents.idm_lane_change_agent import IDMLaneChangeAgent
+from srunner.custom_agents.idm_merging_agent import IDMMergingAgent
+from srunner.custom_agents.idm_drive_distance_agent import IDMDriveDistanceAgent
 
 import srunner.tools as sr_tools
 
@@ -1166,6 +1169,35 @@ class ChangeActorLaneOffset(AtomicBehavior):
         super(ChangeActorLaneOffset, self).terminate(new_status)
 
 
+class AlwaysSuccessTrigger(AtomicBehavior):
+
+    """
+    This class contains an atomic behavior to drive a certain distance.
+    """
+
+    def __init__(self,  name="AlwaysSuccessTrigger"):
+        """
+        Setup parameters
+        """
+        super(AlwaysSuccessTrigger, self).__init__(name)
+        self.logger.debug("%s.__init__()" % (self.__class__.__name__))
+
+
+    def initialise(self):
+        pass
+
+
+    def update(self):
+        """
+        AlwaysSuccessTrigger
+        """
+        print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ')
+        new_status = py_trees.common.Status.SUCCESS
+
+        self.logger.debug("%s.update()[%s->%s]" % (self.__class__.__name__, self.status, new_status))
+        return new_status
+
+
 class ActorTransformSetterToOSCPosition(AtomicBehavior):
 
     """
@@ -2027,6 +2059,366 @@ class WaypointFollower(AtomicBehavior):
         super(WaypointFollower, self).terminate(new_status)
 
 
+'''
+Adapted from WaypointFollower & KeepVelocity
+'''
+class BasicPedestrianBehavior(AtomicBehavior):
+
+    """
+    This is an atomic behavior to follow waypoints while maintaining a given speed.
+    If no plan is provided, the actor will follow its foward waypoints indefinetely.
+    Otherwise, the behavior will end with SUCCESS upon reaching the end of the plan.
+    If no target velocity is provided, the actor continues with its current velocity.
+    Args:
+        actor (carla.Actor):  CARLA actor to execute the behavior.
+        target_speed (float, optional): Desired speed of the actor in m/s. Defaults to None.
+        plan ([carla.Location] or [(carla.Waypoint, carla.agent.navigation.local_planner)], optional):
+            Waypoint plan the actor should follow. Defaults to None.
+        blackboard_queue_name (str, optional):
+            Blackboard variable name, if additional actors should be created on-the-fly. Defaults to None.
+        avoid_collision (bool, optional):
+            Enable/Disable(=default) collision avoidance for vehicles/bikes. Defaults to False.
+        name (str, optional): Name of the behavior. Defaults to "FollowWaypoints".
+    Attributes:
+        actor (carla.Actor):  CARLA actor to execute the behavior.
+        name (str, optional): Name of the behavior.
+        _target_speed (float, optional): Desired speed of the actor in m/s. Defaults to None.
+        _plan ([carla.Location] or [(carla.Waypoint, carla.agent.navigation.local_planner)]):
+            Waypoint plan the actor should follow. Defaults to None.
+        _blackboard_queue_name (str):
+            Blackboard variable name, if additional actors should be created on-the-fly. Defaults to None.
+        _avoid_collision (bool): Enable/Disable(=default) collision avoidance for vehicles/bikes. Defaults to False.
+        _actor_dict: Dictonary of all actors, and their corresponding plans (e.g. {actor: plan}).
+        _local_planner_list: List of local planners used for the actors. Either "Walker" for pedestrians,
+            or a carla.agent.navigation.LocalPlanner for other actors.
+        _args_lateral_dict: Parameters for the PID of the used carla.agent.navigation.LocalPlanner.
+        _unique_id: Unique ID of the behavior based on timestamp in nanoseconds.
+    Note:
+        OpenScenario:
+        The WaypointFollower atomic must be called with an individual name if multiple consecutive WFs.
+        Blackboard variables with lists are used for consecutive WaypointFollower behaviors.
+        Termination of active WaypointFollowers in initialise of AtomicBehavior because any
+        following behavior must terminate the WaypointFollower.
+    """
+
+    def __init__(self, actor, target_speed=None, plan=None, blackboard_queue_name=None,
+                 avoid_collision=False, demo_id=0, name="BasicPedestrianBehavior"):
+        """
+        Set up actor and local planner
+        """
+        super(BasicPedestrianBehavior, self).__init__(name, actor)
+        self._actor_dict = {}
+        self._actor_dict[actor] = None
+        self._target_speed = target_speed + random.choice([0, 0.5, 1, 2])
+        self._local_planner_list = []
+        self._plan = plan
+        self._blackboard_queue_name = blackboard_queue_name
+        if blackboard_queue_name is not None:
+            self._queue = Blackboard().get(blackboard_queue_name)
+        self._args_lateral_dict = {'K_P': 1.0, 'K_D': 0.01, 'K_I': 0.0, 'dt': 0.05}
+        self._avoid_collision = avoid_collision
+        self._unique_id = 0
+        # Pause at each turning
+        self._turing_flag = False
+        self._prev_direction = None
+        self._pause_time = random.choice([0,1,2])
+        self._base_time_flag = True
+        self._base_time = 0
+
+    def initialise(self):
+        """
+        Delayed one-time initialization
+        Checks if a another WaypointFollower behavior is already running for this actor.
+        If this is the case, a termination signal is sent to the running behavior.
+        """
+        super(BasicPedestrianBehavior, self).initialise()
+        self._unique_id = int(round(time.time() * 1e9))
+
+        try:
+            # check whether WF for this actor is already running and add new WF to running_WF list
+            check_attr = operator.attrgetter("running_WF_actor_{}".format(self._actor.id))
+            running = check_attr(py_trees.blackboard.Blackboard())
+            active_wf = copy.copy(running)
+            active_wf.append(self._unique_id)
+            py_trees.blackboard.Blackboard().set(
+                "running_WF_actor_{}".format(self._actor.id), active_wf, overwrite=True)
+        except AttributeError:
+            # no WF is active for this actor
+            py_trees.blackboard.Blackboard().set("terminate_WF_actor_{}".format(self._actor.id), [], overwrite=True)
+            py_trees.blackboard.Blackboard().set(
+                "running_WF_actor_{}".format(self._actor.id), [self._unique_id], overwrite=True)
+
+        for actor in self._actor_dict:
+            self._apply_local_planner(actor)
+        return True
+
+    def _apply_local_planner(self, actor):
+        """
+        Convert the plan into locations for walkers (pedestrians), or to a waypoint list for other actors.
+        For non-walkers, activate the carla.agent.navigation.LocalPlanner module.
+        """
+        if self._target_speed is None:
+            self._target_speed = CarlaDataProvider.get_velocity(actor)
+        else:
+            self._target_speed = self._target_speed
+
+        if isinstance(actor, carla.Walker):
+            self._local_planner_list.append("Walker")
+            if self._plan is not None:
+                if isinstance(self._plan[0], carla.Location):
+                    self._actor_dict[actor] = self._plan
+                else:
+                    self._actor_dict[actor] = [element[0].transform.location for element in self._plan]
+                actor_location = CarlaDataProvider.get_location(actor)
+                self._prev_direction = self._actor_dict[actor][0] - actor_location
+
+    def update(self):
+        """
+        Compute next control step for the given waypoint plan, obtain and apply control to actor
+        """
+        new_status = py_trees.common.Status.RUNNING
+
+        check_term = operator.attrgetter("terminate_WF_actor_{}".format(self._actor.id))
+        terminate_wf = check_term(py_trees.blackboard.Blackboard())
+
+        check_run = operator.attrgetter("running_WF_actor_{}".format(self._actor.id))
+        active_wf = check_run(py_trees.blackboard.Blackboard())
+
+        # Termination of WF if the WFs unique_id is listed in terminate_wf
+        # only one WF should be active, therefore all previous WF have to be terminated
+        if self._unique_id in terminate_wf:
+            terminate_wf.remove(self._unique_id)
+            if self._unique_id in active_wf:
+                active_wf.remove(self._unique_id)
+
+            py_trees.blackboard.Blackboard().set(
+                "terminate_WF_actor_{}".format(self._actor.id), terminate_wf, overwrite=True)
+            py_trees.blackboard.Blackboard().set(
+                "running_WF_actor_{}".format(self._actor.id), active_wf, overwrite=True)
+            new_status = py_trees.common.Status.SUCCESS
+            return new_status
+
+        if self._blackboard_queue_name is not None:
+            while not self._queue.empty():
+                actor = self._queue.get()
+                if actor is not None and actor not in self._actor_dict:
+                    self._apply_local_planner(actor)
+
+        success = True
+        for actor, local_planner in zip(self._actor_dict, self._local_planner_list):
+            if actor is not None and actor.is_alive and local_planner is not None:
+                # If the actor is a pedestrian, we have to use the WalkerAIController
+                # The walker is sent to the next waypoint in its plan
+                if isinstance(actor, carla.Walker):
+                    actor_location = CarlaDataProvider.get_location(actor)
+                    if self._actor_dict[actor]:
+                        success = False
+                        location = self._actor_dict[actor][0]
+                        direction = location - actor_location
+                        direction_norm = math.sqrt(direction.x**2 + direction.y**2)
+                        if direction_norm > 1.0:
+                            control = actor.get_control()
+                            if detect_lane_obstacle(actor, margin=1.0):
+                                control.speed = 0
+                            else:
+                                control.speed = self._target_speed
+
+                            # pause at each turning point (if turing angle is big)
+                            if self._turing_flag and GameTime.get_time() - self._base_time < self._pause_time:
+                                control.speed = 0
+                            else:
+                                self._turing_flag = False
+
+                            control.direction = direction / direction_norm
+                            self._prev_direction = control.direction
+                            actor.apply_control(control)
+                        else:
+                            self._actor_dict[actor] = self._actor_dict[actor][1:]
+                            # turing flag enabled
+                            if len(self._actor_dict[actor]) > 0:
+                                actor_location = CarlaDataProvider.get_location(actor)
+                                direction = self._actor_dict[actor][0] - actor_location
+                                # compare direction with prev_direction
+                                inner_dot = self._prev_direction.x*direction.x + self._prev_direction.y*direction.y
+                                prev_direction_norm = math.sqrt(self._prev_direction.x**2 + self._prev_direction.y**2)
+                                direction_norm = math.sqrt(direction.x**2 + direction.y**2)
+                                cos_angle = inner_dot / (prev_direction_norm * direction_norm)
+                                if cos_angle < 0.5: # < 0.5 means bigger than 60 degrees
+                                    self._turing_flag = True
+                                    self._base_time = GameTime.get_time()
+
+        if success:
+            new_status = py_trees.common.Status.SUCCESS
+
+        return new_status
+
+    def terminate(self, new_status):
+        """
+        On termination of this behavior,
+        the controls should be set back to 0.
+        """
+        for actor in self._actor_dict:
+            if actor is not None and actor.is_alive:
+                control, _ = get_actor_control(actor)
+                actor.apply_control(control)
+
+        self._local_planner_list = []
+        self._actor_dict = {}
+        super(BasicPedestrianBehavior, self).terminate(new_status)
+
+
+class IDMDriveDistanceBehavior(AtomicBehavior):
+
+    """
+    This class contains an atomic behavior, which uses the
+    idm_agent developped in /agents to control the actor until
+    reaching a target location.
+    """
+
+    _acceptable_target_distance = 2
+
+    def __init__(self, actor, distance, target_location=None, start_waypoint=None, reference_speed=None,
+                 name="IDMDriveDistanceBehavior", cooperative_driver=False, dense_traffic=False, demo_id=-1):
+        """
+        Setup actor and maximum steer value
+        """
+        super(IDMDriveDistanceBehavior, self).__init__(name)
+        self.logger.debug("%s.__init__()" % (self.__class__.__name__))
+        self._agent = IDMDriveDistanceAgent(actor,
+                                         start_waypoint,
+                                         reference_speed=reference_speed,
+                                         cooperative_driver=cooperative_driver,
+                                         dense_traffic=dense_traffic,
+                                         name=name,
+                                         demo_id=demo_id)
+        self._control = carla.VehicleControl()
+        if target_location:
+            self._agent.set_destination((target_location.x, target_location.y, target_location.z))
+        self._target_distance = distance
+        self._distance = 0
+        self._location = None
+        self._actor = actor
+
+    def initialise(self):
+        self._control = carla.VehicleControl()
+        self._control.brake = 1.0
+        self._actor.apply_control(self._control)
+        self._distance = 0
+        self._location = CarlaDataProvider.get_location(self._actor)
+        super(IDMDriveDistanceBehavior, self).initialise()
+
+    def update(self):
+        new_status = py_trees.common.Status.RUNNING
+
+        self._control = self._agent.run_step()
+
+        new_location = CarlaDataProvider.get_location(self._actor)
+        self._distance += calculate_distance(self._location, new_location)
+        self._location = new_location
+
+        # print('-------------------------------------- Traveled distance:
+        #     ', self._distance, ', Target distance: ', self._target_distance)
+
+        # if self._distance > self._target_distance:
+        #     new_status = py_trees.common.Status.SUCCESS
+
+        self.logger.debug("%s.update()[%s->%s]" % (self.__class__.__name__, self.status, new_status))
+        self._actor.apply_control(self._control)
+
+        return new_status
+
+    def terminate(self, new_status):
+        self._control.throttle = 0.0
+        self._control.brake = 0.0
+        self._actor.apply_control(self._control)
+        super(IDMDriveDistanceBehavior, self).terminate(new_status)
+
+
+class IDMInteractiveLaneChangeAgentBehavior(AtomicBehavior):
+
+    """
+    This class contains an atomic behavior, which uses the
+    idm_agent developped in /agents to control the actor until
+    reaching a target location.
+    """
+
+    _acceptable_target_distance = 2
+
+    def __init__(self, actor, target_location, start_wp, name="IDMInteractiveLaneChangeAgentBehavior", cooperative_driver=False, dense_traffic=False):
+        """
+        Setup actor and maximum steer value
+        """
+        super(IDMInteractiveLaneChangeAgentBehavior, self).__init__(name)
+        self.logger.debug("%s.__init__()" % (self.__class__.__name__))
+        self._agent = IDMLaneChangeAgent(actor, start_wp, cooperative_driver = cooperative_driver, dense_traffic = dense_traffic)  # pylint: disable=undefined-variable
+        self._agent.set_destination((target_location.x, target_location.y, target_location.z))
+        self._control = carla.VehicleControl()
+        self._actor = actor
+        self._target_location = target_location
+
+    def update(self):
+        new_status = py_trees.common.Status.RUNNING
+
+        self._control = self._agent.run_step()
+
+        location = CarlaDataProvider.get_location(self._actor)
+        if calculate_distance(location, self._target_location) < self._acceptable_target_distance:
+            new_status = py_trees.common.Status.SUCCESS
+
+        self.logger.debug("%s.update()[%s->%s]" % (self.__class__.__name__, self.status, new_status))
+        self._actor.apply_control(self._control)
+
+        return new_status
+
+    def terminate(self, new_status):
+        self._control.throttle = 0.0
+        self._control.brake = 0.0
+        self._actor.apply_control(self._control)
+        super(IDMInteractiveLaneChangeAgentBehavior, self).terminate(new_status)
+
+
+class IDMHighwayMergeAgentBehavior(AtomicBehavior):
+
+    """
+    This class contains an atomic behavior, which uses the
+    idm_agent developped in /agents to control the actor until
+    reaching a target location.
+    """
+
+    _acceptable_target_distance = 2
+
+    def __init__(self, actor, target_location, start_wp, name="IDMHighwayMergeAgentBehavior", cooperative_driver=False, dense_traffic=False, speed_limit=25):
+        """
+        Setup actor and maximum steer value
+        """
+        super(IDMHighwayMergeAgentBehavior, self).__init__(name)
+        self.logger.debug("%s.__init__()" % (self.__class__.__name__))
+        self._agent = IDMMergingAgent(actor, start_wp, cooperative_driver = cooperative_driver, dense_traffic = dense_traffic, speed_limit = speed_limit)  # pylint: disable=undefined-variable
+        self._agent.set_destination((target_location.x, target_location.y, target_location.z))
+        self._control = carla.VehicleControl()
+        self._actor = actor
+        self._target_location = target_location
+
+    def update(self):
+        new_status = py_trees.common.Status.RUNNING
+
+        self._control = self._agent.run_step()
+
+        if self._agent._current_s_pos and self._agent._current_s_pos > self._agent._s_map_agts[-1]: #if self._agent._current_s_pos > self._agent._s_map_agts[-1]:
+            new_status = py_trees.common.Status.SUCCESS
+
+        self.logger.debug("%s.update()[%s->%s]" % (self.__class__.__name__, self.status, new_status))
+        self._actor.apply_control(self._control)
+
+        return new_status
+
+    def terminate(self, new_status):
+        self._control.throttle = 0.0
+        self._control.brake = 0.0
+        self._actor.apply_control(self._control)
+        super(IDMHighwayMergeAgentBehavior, self).terminate(new_status)
+
+
 class LaneChange(WaypointFollower):
 
     """
@@ -2260,6 +2652,45 @@ class ActorTransformSetter(AtomicBehavior):
                 self._actor.set_simulate_physics(enabled=True)
             new_status = py_trees.common.Status.SUCCESS
 
+        return new_status
+
+
+class ActorTransformSetterWithVelocity(AtomicBehavior):
+
+    """
+    This class contains an atomic behavior to set the transform
+    of an actor.
+    """
+
+    def __init__(self, actor, transform, velocity=0, physics=True, name="ActorTransformSetterWithVelocity"):
+        """
+        Init
+        """
+        super(ActorTransformSetterWithVelocity, self).__init__(name)
+        self._actor = actor
+        self._transform = transform
+        self._physics = physics
+        self.logger.debug("%s.__init__()" % (self.__class__.__name__))
+        self._velocity = velocity
+
+    def update(self):
+        """
+        Transform actor
+        """
+        new_status = py_trees.common.Status.RUNNING
+        if self._actor.is_alive:
+            vx = self._velocity * math.cos(math.radians(self._transform.rotation.yaw))
+            vy = self._velocity * math.sin(math.radians(self._transform.rotation.yaw))
+            # self._actor.set_target_velocity(carla.Vector3D(self._velocity, 0, 0))
+            self._actor.set_target_velocity(carla.Vector3D(vx, vy, 0))
+            self._actor.set_target_angular_velocity(carla.Vector3D(0, 0, 0))
+            self._actor.set_transform(self._transform)
+            if self._physics:
+                self._actor.set_simulate_physics(enabled=True)
+            new_status = py_trees.common.Status.SUCCESS
+        else:
+            # For some reason the actor is gone...
+            new_status = py_trees.common.Status.FAILURE
         return new_status
 
 
